@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>알림</title>
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; user-select: none; }
+  body { font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif; font-size: 14px; color: #1B1D21; }
+  #stack { display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; padding: 10px; }
+  .card {
+    position: relative; display: flex; gap: 10px; align-items: flex-start;
+    padding: 12px 34px 12px 12px; border-radius: 10px; cursor: pointer;
+    background: #fff; border: 1px solid #D5D8DD; border-left: 5px solid var(--c);
+    box-shadow: 0 6px 20px rgba(20, 22, 26, .22);
+    animation: in .22s ease-out;
+  }
+  .card:hover { background: #F7F8FA; }
+  .card.out { animation: out .2s ease-in forwards; }
+  .txt { min-width: 0; flex: 1; }
+  .acc { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--c); }
+  .acc time { margin-left: auto; color: #8A8F98; font-weight: 500; }
+  .who { margin-top: 3px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .msg { margin-top: 2px; color: #4A4F57; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
+  .x { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: #8A8F98; font-size: 16px; line-height: 1; cursor: pointer; }
+  .x:hover { background: #E9EBEE; color: #1B1D21; }
+  @keyframes in { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: none; } }
+  @keyframes out { to { opacity: 0; transform: translateX(30px); } }
+  @media (prefers-reduced-motion: reduce) { .card, .card.out { animation: none; } }
+</style>
+</head>
+<body>
+<div id="stack"></div>
+<script src="notify.js"></script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+<title>번장 멀티챗</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">번장 멀티챗</div>
+  <nav class="chips" id="chips" aria-label="계정"></nav>
+  <div class="controls">
+    <div class="seg" id="viewSeg" role="group" aria-label="화면 모드">
+      <button data-view="talk" title="채팅 목록과 대화창만 크게">번개톡</button>
+      <button data-view="site" title="번개장터 사이트 그대로">일반</button>
+    </div>
+    <div class="seg text-size" role="group" aria-label="글자 크기 (모든 계정)">
+      <button id="textDown" title="글자 작게">가-</button>
+      <span id="textSize" aria-live="polite">100%</span>
+      <button id="textUp" title="글자 크게">가+</button>
+    </div>
+    <div class="seg" id="cols" role="group" aria-label="한 줄에 보이는 창 수">
+      <button data-cols="auto" title="모든 계정을 가로 한 줄로">가로</button>
+      <button data-cols="1">1</button>
+      <button data-cols="2">2</button>
+      <button data-cols="3">3</button>
+      <button data-cols="4">4</button>
+    </div>
+    <button class="ghost icon-btn" id="alertBtn" title="알림 설정" aria-label="알림 설정"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1 1H3z"/><path d="M6.8 13.5a1.4 1.4 0 0 0 2.4 0"/></svg><span>알림</span></button>
+    <button class="ghost" id="reloadAll">전체 새로고침</button>
+    <button class="primary" id="addBtn">계정 추가</button>
+  </div>
+</header>
+
+<main class="grid" id="grid"></main>
+
+<div class="empty" id="empty" hidden>
+  <h1>계정마다 따로 로그인되는 창을 만듭니다</h1>
+  <p>계정을 추가하고 창 안에서 카카오·네이버·본인인증으로 로그인하세요. 로그인은 앱을 껐다 켜도 유지됩니다.</p>
+  <button class="primary big" id="emptyAdd">첫 계정 추가</button>
+</div>
+
+<div class="menu" id="menu" hidden role="menu"></div>
+
+<div class="backdrop" id="modal" hidden>
+  <form class="dialog" id="form" autocomplete="off">
+    <h2 id="formTitle">계정 추가</h2>
+    <label class="field">
+      <span>이름</span>
+      <input id="fName" maxlength="20" placeholder="예: 메인 계정, 판매용 2" required>
+    </label>
+    <div class="field">
+      <span>색상</span>
+      <div class="swatches" id="swatches"></div>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="danger" id="fDelete" hidden>계정 삭제</button>
+      <span class="spacer"></span>
+      <button type="button" class="ghost" id="fCancel">취소</button>
+      <button type="submit" class="primary" id="fSubmit">추가</button>
+    </div>
+  </form>
+</div>
+
+<div class="backdrop" id="alertModal" hidden>
+  <div class="dialog" role="dialog" aria-labelledby="alertTitle">
+    <h2 id="alertTitle">알림 설정</h2>
+    <div class="field row">
+      <label for="aSound">알림음</label>
+      <select id="aSound"></select>
+    </div>
+    <div class="field row">
+      <label for="aVolume">볼륨</label>
+      <input type="range" id="aVolume" min="0" max="100" step="5">
+    </div>
+    <label class="check"><input type="checkbox" id="aPopup"> 화면 오른쪽 아래에 알림 띄우기</label>
+    <label class="check"><input type="checkbox" id="aVisible"> 지금 보고 있는 계정에 온 메시지도 알리기</label>
+    <p class="hint">계정별로 끄려면 각 창의 <b>⋯ → 이 계정 알림 끄기</b>를 누르세요. 알림은 채팅 목록이 열려 있는 계정에서만 감지됩니다.</p>
+    <div class="dialog-actions">
+      <button type="button" class="ghost" id="aTest">알림 테스트</button>
+      <span class="spacer"></span>
+      <button type="button" class="primary" id="aClose">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="page-script.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

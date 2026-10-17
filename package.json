@@ -1,0 +1,40 @@
+{
+  "name": "bungae-multichat",
+  "productName": "BungaeMultiChat",
+  "version": "1.4.0",
+  "description": "번개장터 여러 계정 채팅을 한 화면에서",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "kr.sumus.bungaemultichat",
+    "productName": "BungaeMultiChat",
+    "files": [
+      "main.js",
+      "bridge.js",
+      "preload.js",
+      "notify-preload.js",
+      "renderer/**"
+    ],
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "BungaeMultiChat-portable.${ext}"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/minsik2e5/bungae-multichat.git"
+  }
+}
