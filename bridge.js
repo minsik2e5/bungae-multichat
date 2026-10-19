@@ -10,7 +10,8 @@ const http = require('http');
 
 const PORT = 47615;
 const ALLOWED_ORIGINS = new Set([
-  'https://deal-hunter-v5.wwzb-64.chatgpt.site',
+  'https://deal-hunter.minsik2e5.workers.dev', // Deal Hunter 새 운영 주소 (Cloudflare)
+  'https://deal-hunter-v5.wwzb-64.chatgpt.site', // 예전 운영 주소
   'http://localhost:5173', // Hunter 개발 서버 (npm run dev)
   'http://127.0.0.1:5173',
   'http://localhost:4173', // Hunter 빌드 미리보기 (npm run preview)
