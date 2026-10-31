@@ -197,7 +197,9 @@ function pageScript(opts) {
     return 'applied';
   }
 
-  function tick() {
+  function tick() { try { tickInner(); } catch (e) { /* 페이지가 바뀌는 중 오류는 무시 (다음 주기에 다시) */ } }
+
+  function tickInner() {
     let root = null;
     try { root = findRoot(); } catch (e) { /* 페이지 로딩 중 */ }
     const frame = root ? null : findTalkFrame();

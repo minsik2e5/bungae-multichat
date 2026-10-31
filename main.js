@@ -24,12 +24,50 @@ if (process.platform === 'win32') app.setAppUserModelId('kr.sumus.bungaemulticha
 if (!app.requestSingleInstanceLock()) app.quit();
 
 let win = null;
+
+/* ---------- 안정화: 오류 기록 + 죽지 않게 ----------
+ * 예기치 못한 오류가 나도 앱 전체가 꺼지지 않게 하고, 원인 파악용으로 %APPDATA%\BungaeMultiChat\crash.log 에 남긴다. */
+const LOG_FILE = path.join(app.getPath('userData'), 'crash.log');
+function logLine(kind, detail) {
+  try {
+    if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > 500000) fs.renameSync(LOG_FILE, LOG_FILE + '.old');
+    fs.appendFileSync(LOG_FILE, `${new Date().toISOString()} [${kind}] ${String(detail && detail.stack || detail).slice(0, 2000)}\n`);
+  } catch { /* 기록 실패는 무시 */ }
+}
+process.on('uncaughtException', (err) => logLine('uncaughtException', err));
+process.on('unhandledRejection', (err) => logLine('unhandledRejection', err));
+app.on('render-process-gone', (_e, wc, d) => {
+  logLine('render-process-gone', `${wc && wc.getType && wc.getType()} ${d && d.reason} code=${d && d.exitCode}`);
+  // 계정 창(webview)이 죽으면 앱 전체가 아니라 그 창만 다시 불러온다
+  if (wc && !wc.isDestroyed() && wc.getType() === 'webview' && d && d.reason !== 'clean-exit') {
+    setTimeout(() => { try { if (!wc.isDestroyed()) wc.reload(); } catch (err) { logLine('reload-after-crash', err); } }, 800);
+  }
+});
+app.on('child-process-gone', (_e, d) => logLine('child-process-gone', `${d && d.type} ${d && d.reason}`));
+
+// 로그인 유지: 번개장터가 만료일 없는 세션 쿠키로 로그인 정보를 주면 끌 때 사라지므로, 이 앱 안에서만 30일짜리로 늘려 둔다
+// (쿠키 값은 읽어서 어디로 보내거나 기록하지 않고, 같은 계정 창 저장소에 그대로 다시 저장만 한다)
+const KEEP_DAYS = 30;
+function keepLogin(ses) {
+  ses.cookies.on('changed', (_e, c, _cause, removed) => {
+    if (removed || !c.session || !/(^|\.)bunjang\.co\.kr$/i.test(c.domain)) return;
+    const host = c.domain.replace(/^\./, '');
+    const next = {
+      url: `https://${host}${c.path || '/'}`, name: c.name, value: c.value, path: c.path || '/',
+      secure: true, httpOnly: !!c.httpOnly, sameSite: c.sameSite || 'unspecified',
+      expirationDate: Math.floor(Date.now() / 1000) + KEEP_DAYS * 86400,
+    };
+    if (!c.hostOnly) next.domain = c.domain;
+    ses.cookies.set(next).catch((err) => logLine('keepLogin', err.message));
+  });
+}
 // 사이트 알림(notifications)은 Windows 알림으로 띄우지 않는다. 페이지 스크립트가 가로채 앱 알림 하나로 합친다.
 const ALLOWED_PERMS = new Set(['clipboard-sanitized-write', 'fullscreen']);
 
 function hardenSession(ses) {
   if (ses.__hardened) return;
   ses.__hardened = true;
+  keepLogin(ses);
   ses.setPermissionRequestHandler((_wc, perm, cb) => cb(ALLOWED_PERMS.has(perm)));
   ses.setPermissionCheckHandler((_wc, perm) => perm !== 'notifications');
 }
@@ -71,6 +109,12 @@ function createWindow() {
   });
 
   win.on('focus', () => win.flashFrame(false));
+  // 응답 없음 / 화면 프로세스 종료 시 기록하고, 셸 화면이 죽었으면 다시 불러온다 (앱은 유지)
+  win.on('unresponsive', () => logLine('shell-unresponsive', 'main window'));
+  win.webContents.on('render-process-gone', (_e, d) => {
+    logLine('shell-render-gone', d && d.reason);
+    setTimeout(() => { try { if (win && !win.isDestroyed()) win.reload(); } catch (err) { logLine('shell-reload', err); } }, 500);
+  });
   // 알림 팝업 창이 남아 있어도 메인 창을 닫으면 앱 종료
   win.on('closed', () => { win = null; app.quit(); });
   win.on('page-title-updated', (e) => e.preventDefault());
@@ -111,12 +155,17 @@ app.on('web-contents-created', (_e, contents) => {
     contents.on('did-create-window', (child, details) => {
       const first = details?.url || '';
       if (first && first !== 'about:blank') return;
+      let handled = false;
       child.webContents.on('did-start-navigation', (e, legacyUrl, _inPlace, legacyMain) => {
         const url = e?.url || legacyUrl;
         const isMain = e?.isMainFrame ?? legacyMain;
-        if (!isMain || !isInPaneUrl(url)) return;
-        child.destroy();
-        contents.loadURL(url);
+        if (handled || !isMain || !isInPaneUrl(url)) return;
+        handled = true;
+        // 이벤트 처리 도중에 창을 바로 destroy 하면 앱이 죽을 수 있어서, 한 박자 뒤에 안전하게 닫는다
+        setImmediate(() => {
+          try { if (!child.isDestroyed()) child.close(); } catch (err) { logLine('child-close', err); }
+          try { if (!contents.isDestroyed()) contents.loadURL(url); } catch (err) { logLine('child-load', err); }
+        });
       });
     });
   }
@@ -333,4 +382,12 @@ app.whenReady().then(() => {
   });
 });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { if (popup && !popup.isDestroyed()) popup.destroy(); });
+app.on('before-quit', () => {
+  if (popup && !popup.isDestroyed()) popup.destroy();
+  // 끄기 직전에 로그인 쿠키·저장소를 디스크에 확실히 기록
+  try { session.defaultSession.flushStorageData(); } catch { /* 무시 */ }
+  try { fs.readdirSync(path.join(app.getPath('userData'), 'Partitions')).forEach((p) => {
+    const ses = session.fromPartition(`persist:${p}`);
+    ses.flushStorageData(); ses.cookies.flushStore();
+  }); } catch { /* 무시 */ }
+});

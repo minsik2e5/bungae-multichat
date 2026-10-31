@@ -97,13 +97,18 @@ function createPane(a) {
     `(${pageScript.toString()})(${JSON.stringify({ chatOnly: state.view === 'talk' })})`
   ).catch(() => {});
   wv.addEventListener('dom-ready', () => { pane.ready = true; fit(a.id); inject(); });
+  // 이동이 시작되면 준비 안 됨으로 돌려, 그동안 주기 점검이 막힌 화면을 건드리지 않게 한다
+  wv.addEventListener('did-start-navigation', (e) => { if (e.isMainFrame && !e.isInPlace) pane.ready = false; });
+  // 계정 창의 화면 프로세스가 죽으면 그 창만 다시 불러오고 안내
+  wv.addEventListener('render-process-gone', () => { pane.ready = false; toast(`${a.name} 창에 문제가 생겨 다시 불러옵니다`); });
+  wv.addEventListener('unresponsive', () => toast(`${a.name} 창이 느려요. 잠시 기다려 주세요`));
   wv.addEventListener('did-navigate', () => fit(a.id));
   wv.addEventListener('did-navigate-in-page', () => fit(a.id));
   let raf = 0;
   new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => fit(a.id)); }).observe(body);
 
   wv.addEventListener('did-start-loading', () => { loading.hidden = false; err.hidden = true; });
-  wv.addEventListener('did-stop-loading', () => { loading.hidden = true; });
+  wv.addEventListener('did-stop-loading', () => { loading.hidden = true; pane.ready = true; });
   wv.addEventListener('did-fail-load', (e) => {
     if (!e.isMainFrame || e.errorCode === -3) return;
     err.querySelector('p').textContent = `페이지를 불러오지 못했습니다. 인터넷 연결을 확인하세요. (${e.errorDescription || e.errorCode})`;
@@ -115,9 +120,10 @@ function createPane(a) {
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
-    if (act === 'back') { if (wv.canGoBack()) wv.goBack(); }
-    else if (act === 'reload') wv.reload();
-    else if (act === 'home') wv.loadURL(state.view === 'talk' ? DEFAULT_START : SITE_HOME);
+    // 화면이 아직 준비 안 됐거나 막 바뀌는 중에 눌러도 앱이 멈추지 않도록 보호
+    if (act === 'back') { try { if (wv.canGoBack()) wv.goBack(); } catch { /* 이동 중 */ } }
+    else if (act === 'reload') { try { wv.reload(); } catch { /* 이동 중 */ } }
+    else if (act === 'home') { try { wv.loadURL(state.view === 'talk' ? DEFAULT_START : SITE_HOME); } catch { /* 이동 중 */ } }
     else if (act === 'focus') toggleFocus(a.id);
     else if (act === 'more') openMenu(a.id, btn);
   });
@@ -596,13 +602,17 @@ setInterval(() => {
   pushStatus();
   panes.forEach((p, id) => {
     if (!p.ready) return;
+    // 이전 점검이 아직 안 끝났으면(창이 느리거나 멈춤) 요청을 쌓지 않고 건너뛴다. 3초 넘게 답이 없으면 포기하고 다음 주기에 다시.
+    if (p.polling && Date.now() - p.polling < 3000) return;
+    p.polling = Date.now();
     let wcId = 0;
-    try { wcId = p.wv.getWebContentsId(); } catch { return; }
+    try { wcId = p.wv.getWebContentsId(); } catch { p.polling = 0; return; }
+    const within = (pr) => Promise.race([pr, new Promise((r) => setTimeout(() => r(null), 2500))]);
     // 바깥 페이지(채팅 전용 보기 상태) + 안쪽 채팅 프레임(안 읽음 수)을 함께 본다
     Promise.all([
-      p.wv.executeJavaScript('({ s: window.__bmcState || null, n: window.__bmcTakeNotes ? window.__bmcTakeNotes() : [] })').catch(() => null),
-      window.api ? window.api.talkState(wcId).catch(() => null) : null,
-    ]).then(([top, frame]) => {
+      within(p.wv.executeJavaScript('({ s: window.__bmcState || null, n: window.__bmcTakeNotes ? window.__bmcTakeNotes() : [] })')).catch(() => null),
+      window.api ? within(window.api.talkState(wcId)).catch(() => null) : null,
+    ]).finally(() => { p.polling = 0; }).then(([top, frame]) => {
       // 번개장터가 띄우려던 알림 (대화방이 열려 있어 숫자가 안 늘어도 잡힘)
       const notes = [...((top && top.n) || []), ...((frame && frame.notes) || [])];
       if (notes.length) onNotes(id, notes);
