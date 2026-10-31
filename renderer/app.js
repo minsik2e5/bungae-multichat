@@ -102,7 +102,16 @@ function createPane(a) {
   // 계정 창의 화면 프로세스가 죽으면 그 창만 다시 불러오고 안내
   wv.addEventListener('render-process-gone', () => { pane.ready = false; toast(`${a.name} 창에 문제가 생겨 다시 불러옵니다`); });
   wv.addEventListener('unresponsive', () => toast(`${a.name} 창이 느려요. 잠시 기다려 주세요`));
-  wv.addEventListener('did-navigate', () => fit(a.id));
+  wv.addEventListener('did-navigate', (e) => {
+    fit(a.id);
+    // 채팅 화면을 보던 계정이 로그인 화면으로 넘어가면 로그인이 풀린 것
+    if (pane.wasChat && !pane.loginLostNotified && /\/(login|signin|logout)(\/|\?|$)/i.test(e.url || '')) {
+      pane.loginLostNotified = true;
+      toast(`${a.name} 로그인이 풀렸어요. 다시 로그인해 주세요`);
+      window.api?.notify({ id: a.id, account: a.name, color: a.color, popup: true, title: '로그인이 풀렸어요', body: `${a.name} 계정에 다시 로그인해 주세요` });
+      playSound();
+    }
+  });
   wv.addEventListener('did-navigate-in-page', () => fit(a.id));
   let raf = 0;
   new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => fit(a.id)); }).observe(body);
@@ -194,6 +203,7 @@ function onReport(id, d) {
   const p = panes.get(id), a = acc(id);
   if (!p || !a || !d) return;
   p.mode = d.mode || null;
+  if (d.chat || d.frame) { p.wasChat = true; p.loginLostNotified = false; }
   if (!d.chat) { p.scan = null; refreshUnread(id); return; }
   const cur = new Map();
   (Array.isArray(d.chats) ? d.chats : []).slice(0, 100).forEach((c) => {
@@ -293,6 +303,9 @@ function openAlertSettings() {
   $('aVolume').value = Math.round(state.alert.volume * 100);
   $('aPopup').checked = state.alert.popup;
   $('aVisible').checked = state.alert.whenVisible;
+  window.api?.getSettings().then((s) => {
+    if (s) { $('aAutoStart').checked = !!s.autoStart; $('aUpdate').textContent = `업데이트 확인 (v${s.version})`; }
+  }).catch(() => {});
   alertModal.hidden = false;
   sel.focus();
 }
@@ -323,6 +336,27 @@ $('aTest').addEventListener('click', () => {
   }
 });
 $('aClose').addEventListener('click', closeAlertSettings);
+$('aAutoStart').addEventListener('change', async (e) => {
+  const on = await window.api?.setAutoStart(e.target.checked);
+  e.target.checked = !!on;
+  toast(on ? '윈도우를 켤 때 자동으로 실행됩니다.' : '자동 실행을 껐습니다.');
+});
+$('aUpdate').addEventListener('click', async () => {
+  toast('확인하는 중…');
+  const r = await window.api?.checkUpdate();
+  if (!r || !r.ok) return toast('지금은 확인하지 못했어요. 인터넷 연결을 확인해 주세요.');
+  if (!r.newer) toast(`최신 버전입니다. (v${r.current})`);
+});
+// 새 버전 알림
+const updateBar = $('updateBar');
+window.api?.onUpdate((info) => {
+  if (!info || sessionStorage.getItem('bmc:update-dismiss') === info.latest) return;
+  $('updateText').textContent = `새 버전 ${info.latest}이 나왔어요 (지금 v${info.current})`;
+  updateBar.hidden = false;
+  updateBar.dataset.v = info.latest;
+});
+$('updateOpen').addEventListener('click', () => window.api?.openRelease());
+$('updateClose').addEventListener('click', () => { sessionStorage.setItem('bmc:update-dismiss', updateBar.dataset.v || ''); updateBar.hidden = true; });
 alertModal.addEventListener('mousedown', (e) => { if (e.target === alertModal) closeAlertSettings(); });
 $('alertBtn').addEventListener('click', openAlertSettings);
 

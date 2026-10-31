@@ -76,15 +76,18 @@
     </div>
     <label class="check"><input type="checkbox" id="aPopup"> 화면 오른쪽 아래에 알림 띄우기</label>
     <label class="check"><input type="checkbox" id="aVisible"> 지금 보고 있는 계정에 온 메시지도 알리기</label>
+    <label class="check"><input type="checkbox" id="aAutoStart"> 윈도우를 켤 때 자동으로 실행하기</label>
     <p class="hint">계정별로 끄려면 각 창의 <b>⋯ → 이 계정 알림 끄기</b>를 누르세요. 알림은 채팅 목록이 열려 있는 계정에서만 감지됩니다.</p>
     <div class="dialog-actions">
       <button type="button" class="ghost" id="aTest">알림 테스트</button>
+      <button type="button" class="ghost" id="aUpdate">업데이트 확인</button>
       <span class="spacer"></span>
       <button type="button" class="primary" id="aClose">닫기</button>
     </div>
   </div>
 </div>
 
+<div class="updatebar" id="updateBar" hidden><span id="updateText"></span><button class="primary" id="updateOpen">받으러 가기</button><button class="ghost" id="updateClose">나중에</button></div>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="page-script.js"></script>

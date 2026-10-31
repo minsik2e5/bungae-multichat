@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld('api', {
   talkState: (wcId) => ipcRenderer.invoke('talk-state', wcId),
   copy: (text) => ipcRenderer.send('copy', text),
   clearAccount: (id) => ipcRenderer.invoke('clear-account', id),
+  getSettings: () => ipcRenderer.invoke('settings-get'),
+  setAutoStart: (on) => ipcRenderer.invoke('autostart-set', !!on),
+  checkUpdate: () => ipcRenderer.invoke('update-check'),
+  openRelease: () => ipcRenderer.send('open-release'),
+  onUpdate: (fn) => ipcRenderer.on('update-available', (_e, info) => fn(info)),
   onHotkey: (fn) => ipcRenderer.on('hotkey', (_e, key) => fn(key)),
   onFocusAccount: (fn) => ipcRenderer.on('focus-account', (_e, id) => fn(id)),
 });

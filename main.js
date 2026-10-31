@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, session, nativeImage, clipboard, screen, webContents } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, session, nativeImage, clipboard, screen, webContents, net, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { startBridge } = require('./bridge');
@@ -72,10 +72,41 @@ function hardenSession(ses) {
   ses.setPermissionCheckHandler((_wc, perm) => perm !== 'notifications');
 }
 
+/* ---------- 창 크기·위치 기억 ---------- */
+const WIN_FILE = path.join(app.getPath('userData'), 'window-state.json');
+function loadWinState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(WIN_FILE, 'utf8'));
+    const b = s && s.bounds;
+    if (!b || ![b.x, b.y, b.width, b.height].every(Number.isFinite)) return null;
+    // 저장된 위치가 지금 연결된 모니터 안에 있을 때만 사용 (모니터를 뺐을 때 화면 밖으로 사라짐 방지)
+    const onScreen = screen.getAllDisplays().some((d) => {
+      const w = d.workArea;
+      return b.x + 100 > w.x && b.x < w.x + w.width - 100 && b.y + 50 > w.y && b.y < w.y + w.height - 50;
+    });
+    return onScreen ? { bounds: b, maximized: !!s.maximized } : null;
+  } catch { return null; }
+}
+let winSaveTimer = null;
+function saveWinState() {
+  clearTimeout(winSaveTimer);
+  winSaveTimer = setTimeout(() => {
+    try {
+      if (!win || win.isDestroyed() || win.isMinimized()) return;
+      fs.writeFileSync(WIN_FILE, JSON.stringify({ bounds: win.getNormalBounds(), maximized: win.isMaximized() }));
+    } catch (err) { logLine('window-state', err); }
+  }, 400);
+}
+
+const APP_ICON = path.join(__dirname, 'build', 'icon.png');
+
 function createWindow() {
+  const saved = loadWinState();
   win = new BrowserWindow({
-    width: 1600,
-    height: 1000,
+    ...(saved ? saved.bounds : {}),
+    icon: fs.existsSync(APP_ICON) ? APP_ICON : undefined,
+    width: saved ? saved.bounds.width : 1600,
+    height: saved ? saved.bounds.height : 1000,
     minWidth: 900,
     minHeight: 600,
     title: TITLE,
@@ -91,6 +122,8 @@ function createWindow() {
     },
   });
   Menu.setApplicationMenu(null);
+  if (saved && saved.maximized) win.maximize();
+  ['resize', 'move', 'maximize', 'unmaximize', 'close'].forEach((ev) => win.on(ev, saveWinState));
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   // 셸 페이지는 이동 금지
@@ -359,6 +392,40 @@ ipcMain.handle('talk-state', async (e, wcId) => {
   return { state, notes };
 });
 
+/* ---------- 새 버전 알림 · 자동 실행 ---------- */
+const REPO = 'minsik2e5/bungae-multichat';
+const verNum = (v) => String(v || '').replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+const isNewer = (a, b) => {
+  const x = verNum(a), y = verNum(b);
+  for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); }
+  return false;
+};
+let updateInfo = null;
+async function checkUpdate() {
+  try {
+    const r = await net.fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'BungaeMultiChat' } });
+    if (!r.ok) return { ok: false, current: app.getVersion() };
+    const j = await r.json();
+    const latest = String(j.tag_name || '');
+    updateInfo = { ok: true, current: app.getVersion(), latest, newer: isNewer(latest, app.getVersion()), url: `https://github.com/${REPO}/releases/latest` };
+    if (updateInfo.newer && win && !win.isDestroyed()) win.webContents.send('update-available', updateInfo);
+    return updateInfo;
+  } catch (err) { logLine('update-check', err.message); return { ok: false, current: app.getVersion() }; }
+}
+ipcMain.handle('update-check', (e) => (win && e.sender === win.webContents ? checkUpdate() : null));
+ipcMain.on('open-release', (e) => { if (win && e.sender === win.webContents) shell.openExternal(`https://github.com/${REPO}/releases/latest`); });
+const loginItemPath = () => process.env.PORTABLE_EXECUTABLE_FILE || process.execPath; // 포터블은 실제 exe 위치
+ipcMain.handle('settings-get', (e) => {
+  if (!win || e.sender !== win.webContents) return null;
+  let autoStart = false;
+  try { autoStart = app.getLoginItemSettings({ path: loginItemPath() }).openAtLogin; } catch { /* 무시 */ }
+  return { version: app.getVersion(), autoStart, update: updateInfo };
+});
+ipcMain.handle('autostart-set', (e, on) => {
+  if (!win || e.sender !== win.webContents) return false;
+  try { app.setLoginItemSettings({ openAtLogin: !!on, path: loginItemPath() }); return !!on; } catch (err) { logLine('autostart', err.message); return false; }
+});
+
 ipcMain.on('copy',(_e, text) => clipboard.writeText(String(text).slice(0, 20000)));
 
 ipcMain.handle('clear-account', async (_e, id) => {
@@ -375,6 +442,8 @@ app.on('second-instance', () => {
 
 app.whenReady().then(() => {
   createWindow();
+  setTimeout(checkUpdate, 15000);
+  setInterval(checkUpdate, 6 * 3600 * 1000);
   startBridge({
     version: app.getVersion(),
     getStatus: () => status,
