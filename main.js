@@ -45,21 +45,42 @@ app.on('render-process-gone', (_e, wc, d) => {
 });
 app.on('child-process-gone', (_e, d) => logLine('child-process-gone', `${d && d.type} ${d && d.reason}`));
 
-// 로그인 유지: 번개장터가 만료일 없는 세션 쿠키로 로그인 정보를 주면 끌 때 사라지므로, 이 앱 안에서만 30일짜리로 늘려 둔다
-// (쿠키 값은 읽어서 어디로 보내거나 기록하지 않고, 같은 계정 창 저장소에 그대로 다시 저장만 한다)
-const KEEP_DAYS = 30;
+// 로그인 유지: 번개장터 로그인 쿠키(bun_session 등)는 만료일이 없거나 마지막 접속 뒤 하루만 유지돼서,
+// 앱을 끄거나 하루 넘게 안 쓰면 로그아웃된다. 이 앱 안에서만 만료일을 6개월(180일)로 늘려 둔다.
+// 분석용 쿠키(_로 시작)는 건드리지 않는다. 쿠키 값은 어디로 보내거나 기록하지 않고 같은 계정 저장소에 다시 저장만 한다.
+const KEEP_DAYS = 180;
+const isLoginCookie = (c) => /(^|\.)bunjang\.co\.kr$/i.test(c.domain) && !c.name.startsWith('_');
+function extendCookie(ses, c) {
+  const want = Math.floor(Date.now() / 1000) + KEEP_DAYS * 86400;
+  // 이미 충분히 길면 그대로 둔다 (다시 저장할 때 생기는 changed 이벤트로 무한 반복되지 않게)
+  if (!c.session && c.expirationDate && c.expirationDate > want - 86400) return;
+  const host = c.domain.replace(/^\./, '');
+  const next = {
+    url: `https://${host}${c.path || '/'}`, name: c.name, value: c.value, path: c.path || '/',
+    secure: true, httpOnly: !!c.httpOnly, sameSite: c.sameSite || 'unspecified', expirationDate: want,
+  };
+  if (!c.hostOnly) next.domain = c.domain;
+  ses.cookies.set(next).catch((err) => logLine('keepLogin', err.message));
+}
 function keepLogin(ses) {
-  ses.cookies.on('changed', (_e, c, _cause, removed) => {
-    if (removed || !c.session || !/(^|\.)bunjang\.co\.kr$/i.test(c.domain)) return;
-    const host = c.domain.replace(/^\./, '');
-    const next = {
-      url: `https://${host}${c.path || '/'}`, name: c.name, value: c.value, path: c.path || '/',
-      secure: true, httpOnly: !!c.httpOnly, sameSite: c.sameSite || 'unspecified',
-      expirationDate: Math.floor(Date.now() / 1000) + KEEP_DAYS * 86400,
-    };
-    if (!c.hostOnly) next.domain = c.domain;
-    ses.cookies.set(next).catch((err) => logLine('keepLogin', err.message));
+  ses.cookies.on('changed', (_e, c, cause, removed) => {
+    // 사이트가 직접 지운 경우(로그아웃 버튼 등)는 따라가고, 만료로 사라지는 것만 막는다
+    if (removed || !isLoginCookie(c)) return;
+    extendCookie(ses, c);
   });
+  // 앱을 켤 때 이미 저장된 로그인 쿠키도 바로 늘린다
+  ses.cookies.get({}).then((list) => list.filter(isLoginCookie).forEach((c) => extendCookie(ses, c)))
+    .catch((err) => logLine('keepLogin-start', err.message));
+}
+// 켜져 있는 동안은 30분마다 계정별로 번개장터에 한 번 접속해 서버 쪽 로그인도 살아 있게 한다 (페이지 이동·클릭 없음)
+function pingLogins() {
+  try {
+    fs.readdirSync(path.join(app.getPath('userData'), 'Partitions')).filter((p) => p.startsWith('acc-')).forEach((p) => {
+      const ses = session.fromPartition(`persist:${p}`);
+      ses.fetch('https://m.bunjang.co.kr/', { credentials: 'include', headers: { 'User-Agent': app.userAgentFallback } })
+        .then((r) => r.arrayBuffer()).catch((err) => logLine('ping', err.message));
+    });
+  } catch (err) { logLine('ping', err.message); }
 }
 // 사이트 알림(notifications)은 Windows 알림으로 띄우지 않는다. 페이지 스크립트가 가로채 앱 알림 하나로 합친다.
 const ALLOWED_PERMS = new Set(['clipboard-sanitized-write', 'fullscreen']);
@@ -204,6 +225,10 @@ app.on('web-contents-created', (_e, contents) => {
   }
 
   if (type !== 'webview') return;
+
+  // 편의점택배 예약 같은 페이지가 "나가기 확인(beforeunload)"을 걸면 Electron은 창 없이 이동을 막아
+  // 뒤로·홈·새로고침이 모두 먹통이 된다. 확인 없이 이동하게 한다.
+  contents.on('will-prevent-unload', (e) => e.preventDefault());
 
   // Ctrl+0~9 단축키는 webview 안에서 눌러도 셸로 전달
   contents.on('before-input-event', (e, input) => {
@@ -443,6 +468,7 @@ app.on('second-instance', () => {
 app.whenReady().then(() => {
   createWindow();
   setTimeout(checkUpdate, 15000);
+  setInterval(pingLogins, 30 * 60 * 1000);
   setInterval(checkUpdate, 6 * 3600 * 1000);
   startBridge({
     version: app.getVersion(),

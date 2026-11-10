@@ -6,6 +6,14 @@
  * 사이트 동작을 자동으로 누르거나 입력하지 않는다.
  */
 function pageScript(opts) {
+  // 새 창으로 열리던 페이지를 계정 창 안에서 열기 때문에, 페이지의 X(창 닫기)가 아무 일도 안 한다.
+  // 닫기를 누르면 이전 화면으로 돌아가게 한다.
+  if (!window.__bmcCloseHook) {
+    window.__bmcCloseHook = true;
+    try {
+      window.close = () => { if (history.length > 1) history.back(); else location.href = 'https://m.bunjang.co.kr/'; };
+    } catch (e) { /* 덮어쓰기 불가 */ }
+  }
   // 번개장터가 띄우는 알림을 Windows 알림 대신 앱으로 넘긴다 (앱이 소리·팝업 하나로 알림)
   if (!window.__bmcNoteHook) {
     window.__bmcNoteHook = true;
